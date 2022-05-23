@@ -1,5 +1,5 @@
 const express = require("express");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
@@ -53,6 +53,7 @@ async function run() {
     const database = client.db("orbitTools");
     const userCollection = database.collection("users");
     const productCollection = database.collection("products");
+    const orderCollection = database.collection("orders");
     console.log("database connected");
 
     // creating and verifying user and giving jwt token.
@@ -80,16 +81,17 @@ async function run() {
     });
 
     // logout user
-    app.get('/user/logout', (req, res) => {
-      res.clearCookie('accessToken').status(200).send({message: "logout successful"})
-    })
-
+    app.get("/user/logout", (req, res) => {
+      res
+        .clearCookie("accessToken")
+        .status(200)
+        .send({ message: "logout successful" });
+    });
 
     // getting all services
     app.get("/products", async (req, res) => {
-      console.log(req.cookies);
-
       console.log("Products hit");
+
       const limit = parseInt(req.query.limit);
       const isValidLimit = /^\d+$/.test(limit);
 
@@ -103,8 +105,41 @@ async function run() {
       res.send({ success: true, products });
     });
 
-    app.get("/test", verifyToken, (req, res) => {
-      res.send("test");
+    // getting single product by id
+    app.get("/product/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const query = { _id: ObjectId(id) };
+      const product = await productCollection.findOne(query);
+      res.send({ success: true, product });
+    });
+
+    // adding a order
+    app.post("/order", verifyToken, async (req, res) => {
+      console.log("New order");
+
+      const order = req.body.orderData;
+      const id = req.query.productId;
+      const orderQuantity = parseInt(req.query.quantity);
+
+      const product = await productCollection.findOne({ _id: ObjectId(id) });
+
+        const filter = { _id: ObjectId(id) }
+        const updateDoc ={
+          $set: {
+            availableQuantity : (parseInt(product.availableQuantity) - orderQuantity)
+          }
+        }
+        const options = {upsert: true}
+      const updateProduct = await productCollection.updateOne(filter, updateDoc, options);
+
+      if(updateProduct.modifiedCount === 1) {
+        const result = await orderCollection.insertOne(order);
+        res.status(200).send({success: true, result})
+      }
+      else {
+        res.send({success: false, message: "Product stock update failed"})
+      }
     });
   } finally {
     // await client.close();
