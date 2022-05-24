@@ -54,13 +54,45 @@ async function run() {
     const userCollection = database.collection("users");
     const productCollection = database.collection("products");
     const orderCollection = database.collection("orders");
+    const reviewCollection = database.collection("reviews");
     console.log("database connected");
+
+    // verify admin
+    async function verifyAdmin(req, res, next) {
+      const email = req.query.email;
+      const user = await userCollection.findOne({ email: email });
+      if (user) {
+        if (user.role === "admin") {
+          next();
+        } else {
+          res.send(403).send({ message: "forbidden access" });
+        }
+      }
+    }
+    // getting all user
+    app.get("/users", async (req, res) => {
+      const users = await userCollection.find().toArray();
+      res.send({ success: true, users });
+    });
+
+    // getting single user
+    app.get("/user/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const user = await userCollection.findOne({ email: email });
+      res.send({ success: true, user });
+    });
 
     // creating and verifying user and giving jwt token.
     app.put("/user/:email", async (req, res) => {
       console.log("create user api hit");
       const user = req.body;
       const email = req.params.email;
+
+      // handling user role replace
+      const selectedUser = await userCollection.findOne({ email: email });
+      if (selectedUser?.role) {
+        user.role = selectedUser.role;
+      }
 
       const filter = { email: email };
       const options = { upsert: true };
@@ -78,6 +110,24 @@ async function run() {
         httpOnly: true,
       });
       res.status(200).send({ validUser: true, result, token });
+    });
+
+    // checking admin user
+    app.get("/user/admin", async (req, res) => {
+      console.log("checking admin");
+      const email = req.query.email;
+      try {
+        const user = await userCollection.findOne({ email: email });
+        if (user) {
+          if (user.role === "admin") {
+            res.send({ admin: true });
+          } else {
+            res.send({ admin: false });
+          }
+        }
+      } catch (error) {
+        res.send({ admin: false });
+      }
     });
 
     // logout user
@@ -124,23 +174,76 @@ async function run() {
 
       const product = await productCollection.findOne({ _id: ObjectId(id) });
 
-        const filter = { _id: ObjectId(id) }
-        const updateDoc ={
-          $set: {
-            availableQuantity : (parseInt(product.availableQuantity) - orderQuantity)
-          }
-        }
-        const options = {upsert: true}
-      const updateProduct = await productCollection.updateOne(filter, updateDoc, options);
+      const filter = { _id: ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          availableQuantity:
+            parseInt(product.availableQuantity) - orderQuantity,
+        },
+      };
+      const options = { upsert: true };
+      const updateProduct = await productCollection.updateOne(
+        filter,
+        updateDoc,
+        options
+      );
 
-      if(updateProduct.modifiedCount === 1) {
+      if (updateProduct.modifiedCount === 1) {
         const result = await orderCollection.insertOne(order);
-        res.status(200).send({success: true, result})
-      }
-      else {
-        res.send({success: false, message: "Product stock update failed"})
+        res.status(200).send({ success: true, result });
+      } else {
+        res.send({ success: false, message: "Product stock update failed" });
       }
     });
+
+    // getting orders
+    app.get("/orders", async (req, res) => {
+      const email = req.query.email;
+
+      let orders;
+      if (email) {
+        orders = await orderCollection.find({ userEmail: email }).toArray();
+      } else {
+        orders = await orderCollection.find().toArray();
+      }
+
+      if (orders) {
+        res.status(200).send({ success: true, orders });
+      } else {
+        res.send({ success: false, message: "order not found" });
+      }
+    });
+
+    // adding a review
+    app.post('/add/review', (req, res) => {
+      const review = req.body.reviewData;
+      console.log(review);
+
+      const result = reviewCollection.insertOne(review);
+
+      if (result) {
+        res.status(200).send({success: true, message: "Added a review"})
+      }
+    })
+
+    // getting review
+    app.get("/review", async (req, res) => {
+      console.log("Getting review");
+
+      const limit = parseInt(req.query.limit);
+      const isValidLimit = /^\d+$/.test(limit);
+
+      let review;
+      if (isValidLimit) {
+        review = await reviewCollection.find({}).limit(limit).toArray();
+      } else {
+        review = await reviewCollection.find({}).toArray();
+      }
+
+      res.send({ success: true, review});
+    });
+    
+
   } finally {
     // await client.close();
   }
