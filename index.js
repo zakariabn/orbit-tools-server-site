@@ -63,6 +63,7 @@ async function run() {
     const productCollection = database.collection("products");
     const orderCollection = database.collection("orders");
     const reviewCollection = database.collection("reviews");
+    const newsBlogCollection = database.collection("newsBlog");
     console.log("database connected");
 
     // verify admin
@@ -372,6 +373,30 @@ async function run() {
 
       res.send({ success: true, review });
     });
+
+
+
+
+    // getting blogNews
+    app.get('/news-blog', async (req, res) => {
+      console.log("getting blogs");
+      const newsBlogs = await newsBlogCollection.find().toArray();
+      res.send({success: true, newsBlogs});
+    })
+
+    // getting a single blog 
+    app.get('/news-blog/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const blog = await newsBlogCollection.findOne({_id: ObjectId(id)});
+      if (blog) {
+        res.send({success: true, blog});
+      }
+      else {
+        res.send({success: false, message: "request failed, blog not found"});
+      }
+    })
+
   } finally {
     // await client.close();
   }
