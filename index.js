@@ -10,7 +10,15 @@ const port = process.env.PORT || 5000;
 
 // middleware
 // app.use(cors());
-app.use(cors({ credentials: true, origin: `${process.env.ORIGIN}` }));
+
+app.use(
+  cors({
+    credentials: true,
+    crossDomain: true,
+    origin: ["https://orbit-tools.web.app", "http://localhost:3000"],
+    // origin: [`${process.env.ORIGIN}`, "http://localhost:3000"],
+  })
+);
 
 app.use(express.json());
 app.use(cookieParser());
@@ -76,10 +84,14 @@ async function run() {
     });
 
     // getting single user
-    app.get("/user/:email", verifyToken, async (req, res) => {
+    app.get("/user/:email", async (req, res) => {
+      console.log("getting single user");
       const email = req.params.email;
       const user = await userCollection.findOne({ email: email });
-      res.send({ success: true, user });
+      if (user) {
+        res.send({ success: true, user });
+      }else
+      res.send({ success: false, message: "user not found" });
     });
 
     // creating and verifying user and giving jwt token.
@@ -104,16 +116,77 @@ async function run() {
       const token = jwt.sign({ email: email }, process.env.SECRET_TOKEN, {
         expiresIn: "1d",
       });
+
       res.cookie("accessToken", `Bearer ${token}`, {
-        sameSite: "strict",
         expires: new Date(new Date().getTime() + 3600 * 24 * 1000),
         httpOnly: true,
       });
+
       res.status(200).send({ validUser: true, result, token });
     });
 
+    // changing/updating user role
+    app.put("/admin-user/role", async (req, res) => {
+      console.log("role changing");
+      const email = req.body.email;
+      const role = req.body.role;
+
+      if (email || role) {
+        const user = await userCollection.findOne({ email: email });
+
+        // updating role
+        if (user) {
+          user.role = role;
+        }
+        //
+        const filter = { email: email };
+        const updateDoc = {
+          $set: user,
+        };
+        const options = { upsert: true };
+        const result = await userCollection.updateOne(
+          filter,
+          updateDoc,
+          options
+        );
+        if (result.modifiedCount === 1) {
+          res.send({ success: true, message: "request successful" });
+        }
+        else {
+          res.send({success:false, message: "request failed, role will not changed"})
+        }
+      }
+      else {
+        res.send({success:false, message: "Email or wanted role not define"})
+      }
+    });
+
+    // updating userInformation
+    app.put('/update-user', async (req, res) => {
+      console.log('updating user data');
+      const userData = req.body;
+      const email = req.query.email;
+      
+      const filter = {email: email}
+      const option = {upsert: true}
+      const updateDoc = {
+        $set : {...userData}
+      }
+      const result = await userCollection.updateOne(filter, updateDoc, option);
+
+      if (result.modifiedCount === 1) {
+        res.send({success: true, message: "user data update successfully"});
+      }
+      else if (result.matchedCount === 1) {
+        res.send({success: true, message: 'this data already exist'})
+      }
+      else {
+        res.send({success: false, message: "request failed, user data not updated"})
+      }1
+    })
+
     // checking admin user
-    app.get("/user/admin", async (req, res) => {
+    app.get("/admin-user", async (req, res) => {
       console.log("checking admin");
       const email = req.query.email;
       try {
@@ -132,13 +205,14 @@ async function run() {
 
     // logout user
     app.get("/user/logout", (req, res) => {
-      res
-        .clearCookie("accessToken")
-        .status(200)
-        .send({ message: "logout successful" });
+      res.clearCookie("accessToken");
+      res.status(200).send({ message: "Access token removed" });
     });
 
-    // getting all services
+
+
+
+    // getting all product
     app.get("/products", async (req, res) => {
       console.log("Products hit");
 
@@ -151,9 +225,25 @@ async function run() {
       } else {
         products = await productCollection.find({}).toArray();
       }
+      // console.log(products);
 
       res.send({ success: true, products });
     });
+
+    // adding a product
+    app.post('/product', async (req, res) => {
+      const product = req.body;
+      console.log(product);
+
+      const result = await productCollection.insertOne(product);
+
+      if (result.insertedId) {
+        res.send({success: true, message: "a new product added"})
+      } else {
+        res.send({success: false, message: "request failed. product not added"})
+      }
+
+    })
 
     // getting single product by id
     app.get("/product/:id", async (req, res) => {
@@ -164,8 +254,31 @@ async function run() {
       res.send({ success: true, product });
     });
 
+    // deleting single product
+    app.delete('/product/delete', async (req, res) => {
+      const id = req.query.id;
+
+      const query = {_id: ObjectId(id)}
+      console.log(query);
+
+      const result = await productCollection.deleteOne(query);
+
+      console.log(result);
+      
+      if (result.deletedCount === 1) {
+        res.send({success: true, message: "Product delete successfully"});
+      }
+      else {
+        res.send({success: false, message: "request failed"});
+      }
+    })
+
+
+
+
+
     // adding a order
-    app.post("/order", verifyToken, async (req, res) => {
+    app.post("/order", async (req, res) => {
       console.log("New order");
 
       const order = req.body.orderData;
@@ -214,17 +327,34 @@ async function run() {
       }
     });
 
+    // deleting a order
+    app.delete("/order/:id", async (req, res) => {
+      console.log("order deleting");
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
+
+      // i have to do product stock update also
+
+      const result = await orderCollection.deleteOne(query);
+
+      if (result.deletedCount === 1) {
+        res.status(200).send({ success: true, result });
+      } else {
+        res.send({ success: false, message: "request failed" });
+      }
+    });
+
     // adding a review
-    app.post('/add/review', (req, res) => {
+    app.post("/add/review", (req, res) => {
       const review = req.body.reviewData;
       console.log(review);
 
       const result = reviewCollection.insertOne(review);
 
       if (result) {
-        res.status(200).send({success: true, message: "Added a review"})
+        res.status(200).send({ success: true, message: "Added a review" });
       }
-    })
+    });
 
     // getting review
     app.get("/review", async (req, res) => {
@@ -240,10 +370,8 @@ async function run() {
         review = await reviewCollection.find({}).toArray();
       }
 
-      res.send({ success: true, review});
+      res.send({ success: true, review });
     });
-    
-
   } finally {
     // await client.close();
   }
