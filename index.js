@@ -16,7 +16,7 @@ app.use(
     credentials: true,
     crossDomain: true,
     origin: ["https://orbit-tools.web.app", "http://localhost:3000"],
-    // origin: [`${process.env.ORIGIN}`, "http://localhost:3000"],
+    // origin: [`${process.env.ORIGIN}`, "http://localhost:3000"]
   })
 );
 
